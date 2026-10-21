@@ -82,7 +82,7 @@ internal sealed class SpecsViewContext : ApplicationContext
 
         // Only rebuild providers when the selected metrics actually change. Creation runs off the UI
         // thread (hardware sensors take ~1 s to open) and swaps are chained so they apply in order.
-        var metrics = config.Items.Select(i => i.Metric).Distinct(StringComparer.OrdinalIgnoreCase).Order().ToList();
+        var metrics = config.Items.SelectMany(i => i.MetricIds).Distinct(StringComparer.OrdinalIgnoreCase).Order().ToList();
         var key = string.Join('|', metrics);
         if (key != _activeMetricsKey)
         {

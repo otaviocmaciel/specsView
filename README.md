@@ -60,14 +60,25 @@ Comments and trailing commas are allowed; out-of-range values are clamped instea
     "thresholds": [ { "above": 80, "color": "#FFB900" }, { "above": 95, "color": "#E81123" } ]
   },
   "items": [
-    { "metric": "cpu.total", "label": "CPU", "style": "text+sparkline" },
+    { "metric": "cpu.total", "label": "CPU", "style": "text+sparkline", "secondary": "hw.cpu.temp" },
     { "metric": "mem.usedPercent", "label": "RAM", "style": "text+bar" },
-    { "metric": "hw.cpu.temp", "label": "CPU", "style": "text", "color": "#FF8C00" }
+    { "metric": "gpu.total", "label": "GPU", "style": "text+sparkline", "secondary": "hw.gpu.temp" },
+    { "metric": "disk.total.active", "label": "Disk", "style": "text+bar" },
+    { "metric": "net.total.down", "label": "↓", "style": "text" },
+    { "metric": "net.total.up", "label": "↑", "style": "text", "color": "#FF8C00" }
   ]
 }
 ```
 
+The example above renders as three compact columns:
+
+```
+CPU   6% ▁▂▅▃  69°C    GPU  1% ▁▁▂▁  56°C    ↓ 12.0 KB/s
+RAM  93% ██████        Disk 0% ░░░░░░         ↑  2.6 KB/s
+```
+
 - Item styles: `text`, `text+bar`, `text+sparkline`. Items flow column by column (top, bottom, next column).
+- `secondary` adds a second metric after the graphic (typically a temperature), so a component needs a single item. Secondary values are aligned within each column.
 - Colors can be set per item; thresholds apply to percentage metrics.
 - Hovering an item shows its full name, current value and, when it shows "—", the reason.
 

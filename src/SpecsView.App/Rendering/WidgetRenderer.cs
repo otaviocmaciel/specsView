@@ -32,11 +32,11 @@ internal sealed class WidgetRenderer : IDisposable
     private (string Family, float Pixels, bool Bold) _fontKey;
 
     /// <summary>Where each item was drawn in the last bitmap, for hit testing (tooltips).</summary>
-    public IReadOnlyList<(RectangleF Bounds, string MetricId)> LastLayout { get; private set; } = [];
+    public IReadOnlyList<(RectangleF Bounds, ItemConfig Item)> LastLayout { get; private set; } = [];
 
     public Bitmap Render(RenderRequest request)
     {
-        var hitAreas = new List<(RectangleF, string)>();
+        var hitAreas = new List<(RectangleF, ItemConfig)>();
         var scale = request.Scale;
         var layout = request.Config.Layout;
         var font = GetFont(request.Config.Theme.Font, scale);
@@ -72,7 +72,7 @@ internal sealed class WidgetRenderer : IDisposable
             {
                 var bounds = new RectangleF(x, y, column.Width, lineHeight);
                 DrawCell(g, cell, column, bounds, font, scale, request);
-                hitAreas.Add((bounds, cell.Item.Metric));
+                hitAreas.Add((bounds, cell.Item));
                 y += lineHeight;
             }
 
@@ -89,27 +89,42 @@ internal sealed class WidgetRenderer : IDisposable
         var value = snapshot.GetValue(item.Metric);
         var valueText = descriptor is null ? MetricFormatter.Unavailable : MetricFormatter.Format(value, descriptor.Unit);
         var widest = descriptor is null ? MetricFormatter.Unavailable : MetricFormatter.WidestSample(descriptor.Unit);
-        return new Cell(item, descriptor?.Unit, value, item.Label, valueText, widest);
+
+        string? secondaryText = null, secondaryWidest = null;
+        if (item.Secondary is { } secondary)
+        {
+            var secondaryDescriptor = snapshot.GetDescriptor(secondary);
+            secondaryText = secondaryDescriptor is null
+                ? MetricFormatter.Unavailable
+                : MetricFormatter.Format(snapshot.GetValue(secondary), secondaryDescriptor.Unit);
+            secondaryWidest = secondaryDescriptor is null
+                ? MetricFormatter.Unavailable
+                : MetricFormatter.WidestSample(secondaryDescriptor.Unit);
+        }
+
+        return new Cell(item, descriptor?.Unit, value, item.Label, valueText, widest, secondaryText, secondaryWidest);
     }
 
     private static Column MeasureColumn(Cell[] cells, Graphics g, Font font, float scale)
     {
-        var labelWidth = cells.Max(c => c.Label.Length == 0 ? 0 : g.MeasureString(c.Label, font, PointF.Empty, MeasureFormat).Width);
-        var valueWidth = cells.Max(c => g.MeasureString(c.WidestText, font, PointF.Empty, MeasureFormat).Width);
+        float Measure(string? text) => string.IsNullOrEmpty(text) ? 0 : g.MeasureString(text, font, PointF.Empty, MeasureFormat).Width;
+
+        var labelWidth = cells.Max(c => Measure(c.Label));
+        var valueWidth = cells.Max(c => Measure(c.WidestText));
         var graphicWidth = cells.Any(c => c.Item.Style != ItemStyle.Text) ? GraphicWidth * scale : 0;
+        var secondaryWidth = cells.Max(c => Measure(c.SecondaryWidestText));
 
         var width = labelWidth + valueWidth;
-        if (labelWidth > 0)
+        foreach (var slot in new[] { labelWidth, graphicWidth, secondaryWidth })
         {
-            width += Gap * scale;
+            if (slot > 0)
+            {
+                width += Gap * scale;
+            }
         }
 
-        if (graphicWidth > 0)
-        {
-            width += Gap * scale + graphicWidth;
-        }
-
-        return new Column(cells, labelWidth, valueWidth, graphicWidth, width);
+        width += graphicWidth + secondaryWidth;
+        return new Column(cells, labelWidth, valueWidth, graphicWidth, secondaryWidth, width);
     }
 
     private static void DrawCell(Graphics g, Cell cell, Column column, RectangleF bounds, Font font, float scale, RenderRequest request)
@@ -132,26 +147,41 @@ internal sealed class WidgetRenderer : IDisposable
         }
 
         x += column.ValueWidth + Gap * scale;
-        if (column.GraphicWidth <= 0 || cell.Item.Style == ItemStyle.Text)
+        if (column.GraphicWidth > 0)
         {
-            return;
+            if (cell.Item.Style != ItemStyle.Text)
+            {
+                var graphicColor = valueColor == baseColor ? palette.Accent : valueColor;
+                DrawGraphic(g, cell, new RectangleF(x, bounds.Y, column.GraphicWidth, bounds.Height), graphicColor, scale, request);
+            }
+
+            // Text-only items still reserve the graphic slot so secondary values stay aligned.
+            x += column.GraphicWidth + Gap * scale;
         }
 
-        var graphicColor = valueColor == baseColor ? palette.Accent : valueColor;
+        if (cell.SecondaryText is not null)
+        {
+            using var secondaryBrush = new SolidBrush(palette.Foreground);
+            g.DrawString(cell.SecondaryText, font, secondaryBrush, new RectangleF(x, bounds.Y, column.SecondaryWidth, bounds.Height), ValueFormat);
+        }
+    }
+
+    private static void DrawGraphic(Graphics g, Cell cell, RectangleF slot, Color color, float scale, RenderRequest request)
+    {
         var history = request.History.Get(cell.Item.Metric);
         var max = cell.Unit == MetricUnit.Percent ? 100 : Math.Max(1, history.DefaultIfEmpty(0).Max());
 
         if (cell.Item.Style == ItemStyle.TextBar)
         {
-            var barHeight = bounds.Height * 0.45f;
-            var track = new RectangleF(x, bounds.Y + (bounds.Height - barHeight) / 2, column.GraphicWidth, barHeight);
-            DrawBar(g, track, (cell.Value ?? 0) / max, palette.Foreground, graphicColor);
+            var barHeight = slot.Height * 0.45f;
+            var track = slot with { Y = slot.Y + (slot.Height - barHeight) / 2, Height = barHeight };
+            DrawBar(g, track, (cell.Value ?? 0) / max, request.Palette.Foreground, color);
         }
         else
         {
-            var chartHeight = bounds.Height * 0.8f;
-            var area = new RectangleF(x, bounds.Y + (bounds.Height - chartHeight) / 2, column.GraphicWidth, chartHeight);
-            DrawSparkline(g, area, history, max, request.History.Capacity, graphicColor, scale);
+            var chartHeight = slot.Height * 0.8f;
+            var area = slot with { Y = slot.Y + (slot.Height - chartHeight) / 2, Height = chartHeight };
+            DrawSparkline(g, area, history, max, request.History.Capacity, color, scale);
         }
     }
 
@@ -227,7 +257,15 @@ internal sealed class WidgetRenderer : IDisposable
 
     public void Dispose() => _font?.Dispose();
 
-    private sealed record Cell(ItemConfig Item, MetricUnit? Unit, double? Value, string Label, string ValueText, string WidestText);
+    private sealed record Cell(
+        ItemConfig Item,
+        MetricUnit? Unit,
+        double? Value,
+        string Label,
+        string ValueText,
+        string WidestText,
+        string? SecondaryText,
+        string? SecondaryWidestText);
 
-    private sealed record Column(Cell[] Cells, float LabelWidth, float ValueWidth, float GraphicWidth, float Width);
+    private sealed record Column(Cell[] Cells, float LabelWidth, float ValueWidth, float GraphicWidth, float SecondaryWidth, float Width);
 }

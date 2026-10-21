@@ -19,7 +19,9 @@ public sealed record AppConfig
         new() { Metric = "cpu.total", Label = "CPU", Style = ItemStyle.TextSparkline },
         new() { Metric = "mem.usedPercent", Label = "RAM", Style = ItemStyle.TextBar },
         new() { Metric = "gpu.total", Label = "GPU", Style = ItemStyle.TextSparkline },
+        new() { Metric = "disk.total.active", Label = "Disco", Style = ItemStyle.TextBar },
         new() { Metric = "net.total.down", Label = "↓", Style = ItemStyle.Text },
+        new() { Metric = "net.total.up", Label = "↑", Style = ItemStyle.Text },
     ];
 
     /// <summary>Clamps out-of-range values instead of rejecting the whole file.</summary>
@@ -29,7 +31,10 @@ public sealed record AppConfig
         RefreshIntervalMs = Math.Clamp(RefreshIntervalMs, 250, 60_000),
         Layout = (Layout ?? new()).Normalize(),
         Theme = (Theme ?? new()).Normalize(),
-        Items = (Items ?? []).Where(i => !string.IsNullOrWhiteSpace(i?.Metric)).ToList(),
+        Items = (Items ?? [])
+            .Where(i => !string.IsNullOrWhiteSpace(i?.Metric))
+            .Select(i => string.IsNullOrWhiteSpace(i.Secondary) ? i with { Secondary = null } : i)
+            .ToList(),
     };
 }
 
@@ -114,6 +119,17 @@ public sealed record ItemConfig
 
     /// <summary>Optional value color override (#RRGGBB); thresholds still apply on top.</summary>
     public string? Color { get; init; }
+
+    /// <summary>
+    /// Optional second metric drawn after the graphic, e.g. "hw.cpu.temp" next to "cpu.total",
+    /// so one item shows load, sparkline and temperature together.
+    /// </summary>
+    public string? Secondary { get; init; }
+
+    /// <summary>The metric ids this item needs sampled.</summary>
+    [JsonIgnore]
+    public IEnumerable<string> MetricIds =>
+        string.IsNullOrWhiteSpace(Secondary) ? [Metric] : [Metric, Secondary];
 }
 
 public enum ItemStyle

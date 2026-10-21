@@ -20,7 +20,7 @@ internal sealed class TaskbarOverlayForm : Form
     private readonly WidgetRenderer _renderer = new();
     private readonly ToolTip _toolTip = new() { ShowAlways = true, InitialDelay = 400 };
     private readonly MetricHistory _history;
-    private string? _hoveredMetric;
+    private ItemConfig? _hoveredItem;
     private AppConfig _config;
     private MetricSnapshot _snapshot = MetricSnapshot.Empty;
     private Palette _palette;
@@ -135,19 +135,22 @@ internal sealed class TaskbarOverlayForm : Form
         base.OnMouseMove(e);
 
         // ShowAlways is required: this window never activates, so a normal tooltip would never appear.
-        var metric = _renderer.LastLayout.FirstOrDefault(c => c.Bounds.Contains(e.Location)).MetricId;
-        if (metric != _hoveredMetric)
+        var item = _renderer.LastLayout.FirstOrDefault(c => c.Bounds.Contains(e.Location)).Item;
+        if (item != _hoveredItem)
         {
-            _hoveredMetric = metric;
-            _toolTip.SetToolTip(this, metric is null ? null : DescribeMetric(metric));
+            _hoveredItem = item;
+            _toolTip.SetToolTip(this, item is null ? null : DescribeItem(item));
         }
     }
 
     protected override void OnMouseLeave(EventArgs e)
     {
         base.OnMouseLeave(e);
-        _hoveredMetric = null;
+        _hoveredItem = null;
     }
+
+    private string DescribeItem(ItemConfig item) =>
+        string.Join("\n\n", item.MetricIds.Select(DescribeMetric));
 
     private string DescribeMetric(string metricId)
     {

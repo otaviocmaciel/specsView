@@ -74,6 +74,21 @@ public sealed class ConfigServiceTests : IDisposable
     }
 
     [Fact]
+    public void Secondary_metric_is_parsed_and_sampled()
+    {
+        var config = ConfigService.Parse("""{ "items": [ { "metric": "cpu.total", "secondary": "hw.cpu.temp" }, { "metric": "mem.used", "secondary": " " } ] }""");
+
+        Assert.NotNull(config);
+        Assert.Equal(["cpu.total", "hw.cpu.temp"], config.Items[0].MetricIds);
+        Assert.Null(config.Items[1].Secondary);
+        Assert.Equal(["mem.used"], config.Items[1].MetricIds);
+    }
+
+    [Fact]
+    public void Computed_properties_are_not_written_to_disk() =>
+        Assert.DoesNotContain("metricIds", ConfigService.Serialize(new AppConfig()), StringComparison.OrdinalIgnoreCase);
+
+    [Fact]
     public void Parse_returns_null_for_invalid_json() =>
         Assert.Null(ConfigService.Parse("{ not json"));
 
