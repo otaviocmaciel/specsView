@@ -1,0 +1,48 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to create the release for (e.g. v0.1.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Test
+        run: dotnet test -c Release
+
+      - name: Publish
+        shell: pwsh
+        run: |
+          $version = $env:TAG.TrimStart('v')
+          foreach ($selfContained in 'false', 'true') {
+            $flavor = if ($selfContained -eq 'true') { 'self-contained' } else { 'framework-dependent' }
+            dotnet publish src/SpecsView.App -c Release --self-contained $selfContained `
+              -p:Version=$version -o "artifacts/publish/$flavor"
+            if ($LASTEXITCODE -ne 0) { throw "dotnet publish ($flavor) failed." }
+          }
+          New-Item -ItemType Directory -Force -Path artifacts/release | Out-Null
+          Copy-Item artifacts/publish/framework-dependent/SpecsView.exe artifacts/release/SpecsView.exe
+          Copy-Item artifacts/publish/self-contained/SpecsView.exe artifacts/release/SpecsView-self-contained.exe
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          generate_release_notes: true
+          files: artifacts/release/*.exe

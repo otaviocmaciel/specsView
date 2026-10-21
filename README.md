@@ -10,10 +10,31 @@ network, temperatures and more — right next to the notification area.
 
 > Status: early development. Configuration is done by editing `config.json`; a settings window is on the [roadmap](#roadmap).
 
+## Download
+
+Prebuilt executables are attached to each [GitHub release](https://github.com/otaviocmaciel/specsView/releases/latest):
+
+| File | Notes |
+|---|---|
+| `SpecsView.exe` | Small (~5 MB); requires the [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) |
+| `SpecsView-self-contained.exe` | Larger; bundles the .NET runtime, runs on any Windows 10/11 x64 machine |
+
+No installer is needed: put the executable anywhere and run it.
+
+### Publishing a release
+
+Releases are built by GitHub Actions ([`.github/workflows/release.yml`](.github/workflows/release.yml)).
+Pushing a version tag runs the tests, builds both executables and creates the release:
+
+```powershell
+git tag v0.1.0
+git push origin v0.1.0
+```
+
 ## Requirements
 
 - Windows 10 or 11 (x64)
-- [.NET 10 SDK](https://dotnet.microsoft.com/download) to build
+- [.NET 10 SDK](https://dotnet.microsoft.com/download) to build from source
 - Optional, for CPU/motherboard temperatures: administrator rights and the [PawnIO](https://pawnio.eu) driver (see [Privileges](#privileges))
 
 ## Getting started
