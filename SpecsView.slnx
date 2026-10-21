@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SpecsView.App/SpecsView.App.csproj" />
+    <Project Path="src/SpecsView.Core/SpecsView.Core.csproj" />
+    <Project Path="src/SpecsView.Sensors/SpecsView.Sensors.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SpecsView.Tests/SpecsView.Tests.csproj" />
+  </Folder>
+</Solution>

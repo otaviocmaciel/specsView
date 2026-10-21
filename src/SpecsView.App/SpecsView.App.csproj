@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <AssemblyName>SpecsView</AssemblyName>
+    <RootNamespace>SpecsView.App</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SpecsView.Core\SpecsView.Core.csproj" />
+    <ProjectReference Include="..\SpecsView.Sensors\SpecsView.Sensors.csproj" />
+  </ItemGroup>
+</Project>
