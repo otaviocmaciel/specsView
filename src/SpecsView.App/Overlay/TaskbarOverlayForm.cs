@@ -17,6 +17,10 @@ internal sealed class TaskbarOverlayForm : Form
     private const int EdgeMargin = 4;
 
     private readonly uint _taskbarCreatedMessage = User32.RegisterWindowMessage("TaskbarCreated");
+
+    // Kept in a field: the native hook calls this delegate, so it must not be garbage collected.
+    private readonly User32.WinEventProc _onForegroundChanged;
+    private nint _foregroundHook;
     private readonly WidgetRenderer _renderer = new();
     private readonly ToolTip _toolTip = new() { ShowAlways = true, InitialDelay = 400 };
     private readonly MetricHistory _history;
@@ -35,6 +39,7 @@ internal sealed class TaskbarOverlayForm : Form
         ShowInTaskbar = false;
         StartPosition = FormStartPosition.Manual;
         Text = "SpecsView";
+        _onForegroundChanged = (_, _, _, _, _, _, _) => Render();
         Size = new Size(1, 1);
     }
 
@@ -186,8 +191,24 @@ internal sealed class TaskbarOverlayForm : Form
         }
     }
 
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+
+        // React to focus changes right away instead of on the next tick: entering/leaving full
+        // screen, and the taskbar being raised above us when clicked.
+        _foregroundHook = User32.SetWinEventHook(
+            User32.EventSystemForeground, User32.EventSystemForeground, 0, _onForegroundChanged, 0, 0, User32.WinEventOutOfContext);
+    }
+
     protected override void Dispose(bool disposing)
     {
+        if (_foregroundHook != 0)
+        {
+            User32.UnhookWinEvent(_foregroundHook);
+            _foregroundHook = 0;
+        }
+
         if (disposing)
         {
             _renderer.Dispose();

@@ -6,6 +6,15 @@
     <AssemblyName>SpecsView</AssemblyName>
     <RootNamespace>SpecsView.App</RootNamespace>
   </PropertyGroup>
+  <!-- `dotnet publish -c Release` produces a single SpecsView.exe (see publish.ps1). -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>false</SelfContained>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <DebugType>embedded</DebugType>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\SpecsView.Core\SpecsView.Core.csproj" />
     <ProjectReference Include="..\SpecsView.Sensors\SpecsView.Sensors.csproj" />

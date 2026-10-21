@@ -24,6 +24,17 @@ dotnet test
 dotnet run --project src/SpecsView.App
 ```
 
+### Building the executable
+
+```powershell
+./publish.ps1                    # artifacts/publish/framework-dependent/SpecsView.exe (~5 MB)
+./publish.ps1 -Install           # also installs to %LOCALAPPDATA%\Programs\SpecsView + Start Menu shortcut
+./publish.ps1 -SelfContained     # bundles the .NET runtime, for machines without .NET 10
+```
+
+The output is a single `SpecsView.exe`. The default build requires the
+[.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0).
+
 Right-click the widget or its tray icon for the menu (UI strings are currently in Portuguese):
 
 | Menu item | Action |
@@ -172,7 +183,7 @@ public sealed record MetricSnapshot(
 - **Isolated failures**: a provider that throws is logged once and skipped; the others keep working.
 - **Runtime discovery**: instances that appear later (disks, adapters, drives) are announced by the provider together with their value (`MetricSink.Add(descriptor, value)`), so a USB drive plugged in later shows up without a restart.
 - **One PDH query**: all PDH-based providers share a single query collected once per tick, using English counter paths (`PdhAddEnglishCounter`) so they work on any Windows display language. Wildcard counters are read without per-tick string allocations.
-- **Overlay**: a borderless `WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE` window drawn with `UpdateLayeredWindow` (per-pixel alpha). It never steals focus, re-asserts topmost every frame (clicking the taskbar raises it), repositions on `TaskbarCreated` (Explorer restart), `WM_DISPLAYCHANGE` and `WM_DPICHANGED`, and hides while a full-screen app runs (`SHQueryUserNotificationState`). Windows 11 removed DeskBands, so an overlay is the only way to sit on the taskbar.
+- **Overlay**: a borderless `WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE` window drawn with `UpdateLayeredWindow` (per-pixel alpha). It never steals focus, re-asserts topmost every frame (clicking the taskbar raises it), repositions on `TaskbarCreated` (Explorer restart), `WM_DISPLAYCHANGE` and `WM_DPICHANGED`, and hides while a full-screen app runs. Full screen means the foreground window covers its whole monitor (taskbar included); `SHQueryUserNotificationState` is only trusted for exclusive D3D and presentation mode, because its "busy" state is also reported for ordinary windows. A `EVENT_SYSTEM_FOREGROUND` hook updates visibility and z-order as soon as focus changes. Windows 11 removed DeskBands, so an overlay is the only way to sit on the taskbar.
 - **Config**: System.Text.Json source generator; invalid JSON keeps the previous configuration; `schemaVersion` allows future migrations.
 - **Logging**: `%LOCALAPPDATA%\SpecsView\logs\specsview.log`, rotated at 1 MB.
 
@@ -199,4 +210,5 @@ LibreHardwareMonitor accounts for about 20 MB, which is why it is only loaded wh
 - [ ] Settings window with metric discovery
 - [ ] Taskbars on secondary monitors
 - [ ] Start with Windows (Run key, or an elevated scheduled task for hardware sensors) and app icon
+- [x] Single-file executable and per-user install script
 - [ ] Portable zip release

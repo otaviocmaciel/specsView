@@ -82,6 +82,45 @@ internal static partial class User32
         nint hwnd, nint hdcDst, ref Point pptDst, ref Size psize, nint hdcSrc, ref Point pptSrc,
         uint crKey, ref BlendFunction pblend, uint flags);
 
+    public const uint EventSystemForeground = 0x0003;
+    public const uint WinEventOutOfContext = 0x0000;
+    public const uint MonitorDefaultToNearest = 0x00000002;
+
+    public delegate void WinEventProc(nint hook, uint eventType, nint hwnd, int idObject, int idChild, uint thread, uint time);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MonitorInfo
+    {
+        public uint Size;
+        public Rect Monitor;
+        public Rect Work;
+        public uint Flags;
+    }
+
+    [LibraryImport("user32.dll")]
+    public static partial nint GetForegroundWindow();
+
+    [LibraryImport("user32.dll", EntryPoint = "GetClassNameW")]
+    public static unsafe partial int GetClassName(nint hwnd, char* buffer, int maxCount);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool IsIconic(nint hwnd);
+
+    [LibraryImport("user32.dll")]
+    public static partial nint MonitorFromWindow(nint hwnd, uint flags);
+
+    [LibraryImport("user32.dll", EntryPoint = "GetMonitorInfoW")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool GetMonitorInfo(nint monitor, ref MonitorInfo info);
+
+    [LibraryImport("user32.dll")]
+    public static partial nint SetWinEventHook(uint eventMin, uint eventMax, nint module, WinEventProc callback, uint processId, uint threadId, uint flags);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool UnhookWinEvent(nint hook);
+
     [LibraryImport("user32.dll")]
     public static partial nint GetDC(nint hwnd);
 
@@ -108,8 +147,7 @@ internal static partial class Gdi32
 
 internal static partial class Shell32
 {
-    // QUERY_USER_NOTIFICATION_STATE values that mean "something is running full screen".
-    public const int QunsBusy = 2;
+    // QUERY_USER_NOTIFICATION_STATE values that reliably mean "something is running full screen".
     public const int QunsRunningD3DFullScreen = 3;
     public const int QunsPresentationMode = 4;
 
