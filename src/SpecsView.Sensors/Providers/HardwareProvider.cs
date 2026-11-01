@@ -91,7 +91,7 @@ public sealed class HardwareProvider : IMetricProvider
 
     /// <summary>Why CPU/motherboard sensors cannot be read, or null when they can.</summary>
     public static string? AccessProblem =>
-        !IsDriverInstalled ? "Driver PawnIO não instalado (winget install namazso.PawnIO)."
+        !IsDriverInstalled ? "Driver PawnIO não instalado: use \"Ativar sensores da CPU\" no menu."
         : !IsElevated ? "Requer administrador: use \"Reiniciar como administrador\" no menu."
         : null;
 

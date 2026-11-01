@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using SpecsView.App.Overlay;
+using SpecsView.App.Settings;
+using SpecsView.App.Setup;
 using SpecsView.Core.Config;
 using SpecsView.Core.Diagnostics;
 using SpecsView.Core.Metrics;
@@ -18,6 +20,9 @@ internal sealed class SpecsViewContext : ApplicationContext
     private readonly NotifyIcon _trayIcon;
     private readonly ContextMenuStrip _menu;
     private readonly ToolStripMenuItem _pauseItem;
+    private readonly ToolStripMenuItem _autostartItem;
+    private ToolStripMenuItem? _enableSensorsItem;
+    private MetricsSettingsForm? _settingsForm;
     private string _activeMetricsKey = "";
     private Task _providerSwap = Task.CompletedTask;
 
@@ -29,6 +34,10 @@ internal sealed class SpecsViewContext : ApplicationContext
 
         _overlay = new TaskbarOverlayForm(config, _history);
         _pauseItem = new ToolStripMenuItem("Pausar", null, (_, _) => TogglePause());
+        _autostartItem = new ToolStripMenuItem("Iniciar com o Windows", null, (_, _) => ToggleAutostart())
+        {
+            Checked = Autostart.IsEnabled,
+        };
         _menu = BuildMenu();
         _overlay.MouseUp += (_, e) =>
         {
@@ -45,6 +54,7 @@ internal sealed class SpecsViewContext : ApplicationContext
             ContextMenuStrip = _menu,
             Visible = true,
         };
+        _trayIcon.DoubleClick += (_, _) => ShowSettings();
 
         // Forces the handle so BeginInvoke works before the first frame is shown.
         _ = _overlay.Handle;
@@ -61,11 +71,18 @@ internal sealed class SpecsViewContext : ApplicationContext
     private ContextMenuStrip BuildMenu()
     {
         var menu = new ContextMenuStrip();
+        menu.Items.Add(new ToolStripMenuItem("Escolher métricas...", null, (_, _) => ShowSettings()) { Font = new Font(menu.Font, FontStyle.Bold) });
         menu.Items.Add("Editar configurações", null, (_, _) => OpenWithShell(_configService.FilePath));
         menu.Items.Add("Ver métricas disponíveis", null, (_, _) => ShowMetricsReport());
         menu.Items.Add("Abrir pasta de configurações", null, (_, _) => OpenWithShell(_configService.Directory));
         menu.Items.Add(_pauseItem);
-        if (!HardwareProvider.IsElevated)
+        menu.Items.Add(_autostartItem);
+        if (!HardwareProvider.IsDriverInstalled)
+        {
+            _enableSensorsItem = new ToolStripMenuItem("Ativar sensores da CPU...", SystemIcons.Shield.ToBitmap(), (_, _) => EnableSensors());
+            menu.Items.Add(_enableSensorsItem);
+        }
+        else if (!HardwareProvider.IsElevated)
         {
             menu.Items.Add("Reiniciar como administrador", SystemIcons.Shield.ToBitmap(), (_, _) => RestartElevated());
         }
@@ -93,6 +110,25 @@ internal sealed class SpecsViewContext : ApplicationContext
         }
 
         _overlay.ApplyConfig(config);
+    }
+
+    private void ShowSettings()
+    {
+        if (_settingsForm is { IsDisposed: false })
+        {
+            _settingsForm.Activate();
+            return;
+        }
+
+        _settingsForm = new MetricsSettingsForm(_configService.Current, selected =>
+        {
+            // Saving does not raise Changed (our own write), so apply it here.
+            _configService.Save(ItemPresets.Apply(_configService.Current, selected));
+            ApplyConfig(_configService.Current);
+        });
+        _settingsForm.FormClosed += (_, _) => _settingsForm = null;
+        _settingsForm.Show();
+        _settingsForm.Activate();
     }
 
     private void OnSnapshotReady(MetricSnapshot snapshot) => PostToUi(() =>
@@ -141,20 +177,80 @@ internal sealed class SpecsViewContext : ApplicationContext
         });
     }
 
-    private void RestartElevated()
+    private void EnableSensors()
+    {
+        var answer = MessageBox.Show(
+            "Para ler a temperatura e a potência da CPU, o SpecsView vai:\n\n" +
+            "• baixar o driver PawnIO do site oficial (github.com/namazso) e conferir a assinatura digital;\n" +
+            "• instalá-lo, pedindo permissão de administrador uma única vez;\n" +
+            "• passar a iniciar com o Windows como administrador, sem novos avisos (desative em \"Iniciar com o Windows\").\n\n" +
+            "Continuar?",
+            "Ativar sensores da CPU",
+            MessageBoxButtons.OKCancel,
+            MessageBoxIcon.Information);
+        if (answer != DialogResult.OK)
+        {
+            return;
+        }
+
+        _enableSensorsItem!.Enabled = false;
+        _trayIcon.ShowBalloonTip(3000, "SpecsView", "Baixando o driver PawnIO...", ToolTipIcon.Info);
+        Task.Run(async () =>
+        {
+            try
+            {
+                var setupPath = await SensorSetup.DownloadAsync().ConfigureAwait(false);
+                PostToUi(() =>
+                {
+                    if (!RestartElevated($"{SensorSetup.InstallDriverArg} \"{setupPath}\""))
+                    {
+                        _enableSensorsItem.Enabled = true;
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Could not download PawnIO.", ex);
+                PostToUi(() =>
+                {
+                    MessageBox.Show($"Não foi possível baixar o driver PawnIO:\n{ex.Message}", "SpecsView", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    _enableSensorsItem.Enabled = true;
+                });
+            }
+        });
+    }
+
+    private async void ToggleAutostart()
+    {
+        _autostartItem.Enabled = false;
+        try
+        {
+            await Autostart.SetAsync(!_autostartItem.Checked);
+        }
+        finally
+        {
+            _autostartItem.Checked = Autostart.IsEnabled;
+            _autostartItem.Enabled = true;
+        }
+    }
+
+    /// <summary>Relaunches elevated (the new process waits for this one to exit); false if UAC was declined.</summary>
+    private bool RestartElevated(string extraArgs = "")
     {
         try
         {
-            Process.Start(new ProcessStartInfo(Environment.ProcessPath!, Program.WaitForPreviousInstanceArg)
+            Process.Start(new ProcessStartInfo(Environment.ProcessPath!, $"{extraArgs} {Program.WaitForPreviousInstanceArg}".Trim())
             {
                 UseShellExecute = true,
                 Verb = "runas",
             });
             ExitThread();
+            return true;
         }
         catch (System.ComponentModel.Win32Exception)
         {
             // User declined the UAC prompt; keep running unelevated.
+            return false;
         }
     }
 
@@ -181,6 +277,7 @@ internal sealed class SpecsViewContext : ApplicationContext
         _trayIcon.Visible = false;
         _trayIcon.Dispose();
         _menu.Dispose();
+        _settingsForm?.Dispose();
         _overlay.Dispose();
         Log.Info("SpecsView stopped.");
         base.ExitThreadCore();

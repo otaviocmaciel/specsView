@@ -50,7 +50,7 @@ internal sealed class WidgetRenderer : IDisposable
         var rows = Math.Max(1, layout.Rows);
         var columns = cells
             .Chunk(rows)
-            .Select(column => MeasureColumn(column, measure, font, scale))
+            .Select(column => MeasureColumn(column, rows, measure, font, scale))
             .ToList();
 
         var spacing = layout.ItemSpacing * scale;
@@ -62,18 +62,29 @@ internal sealed class WidgetRenderer : IDisposable
         Configure(g);
         g.Clear(request.Palette.Background);
 
-        var usedRows = Math.Min(rows, Math.Max(1, cells.Count));
+        var usedRows = Math.Clamp(columns.Select(c => c.Rows.Length).DefaultIfEmpty(1).Max(), 1, rows);
         var top = (height - usedRows * lineHeight) / 2;
         var x = Padding * scale;
         foreach (var column in columns)
         {
-            var y = top;
-            foreach (var cell in column.Cells)
+            for (var row = 0; row < column.Rows.Length; row++)
             {
-                var bounds = new RectangleF(x, y, column.Width, lineHeight);
-                DrawCell(g, cell, column, bounds, font, scale, request);
-                hitAreas.Add((bounds, cell.Item));
-                y += lineHeight;
+                var bounds = new RectangleF(x, top + row * lineHeight, column.Width, lineHeight);
+                var cell = row < column.Cells.Length ? column.Cells[row] : null;
+                if (cell is not null)
+                {
+                    DrawCell(g, cell, column, bounds, font, scale, request);
+                    hitAreas.Add((bounds, cell.Item));
+                }
+
+                // Hovering a value stacked under its item (e.g. CPU power on the RAM row) describes its own item.
+                foreach (var (slot, owner) in DrawSecondaries(g, column.Rows[row], column, bounds, font, scale, request.Palette))
+                {
+                    if (owner != cell?.Item)
+                    {
+                        hitAreas.Insert(0, (slot, owner));
+                    }
+                }
             }
 
             x += column.Width + spacing;
@@ -90,32 +101,36 @@ internal sealed class WidgetRenderer : IDisposable
         var valueText = descriptor is null ? MetricFormatter.Unavailable : MetricFormatter.Format(value, descriptor.Unit);
         var widest = descriptor is null ? MetricFormatter.Unavailable : MetricFormatter.WidestSample(descriptor.Unit);
 
-        string? secondaryText = null, secondaryWidest = null;
-        if (item.Secondary is { } secondary)
-        {
-            var secondaryDescriptor = snapshot.GetDescriptor(secondary);
-            secondaryText = secondaryDescriptor is null
-                ? MetricFormatter.Unavailable
-                : MetricFormatter.Format(snapshot.GetValue(secondary), secondaryDescriptor.Unit);
-            secondaryWidest = secondaryDescriptor is null
-                ? MetricFormatter.Unavailable
-                : MetricFormatter.WidestSample(secondaryDescriptor.Unit);
-        }
+        var secondaries = (item.Secondary ?? [])
+            .Select(id => snapshot.GetDescriptor(id) is { } d
+                ? new SecondaryText(MetricFormatter.Format(snapshot.GetValue(id), d.Unit), MetricFormatter.WidestSample(d.Unit))
+                : new SecondaryText(MetricFormatter.Unavailable, MetricFormatter.Unavailable))
+            .ToList();
 
-        return new Cell(item, descriptor?.Unit, value, item.Label, valueText, widest, secondaryText, secondaryWidest);
+        return new Cell(item, descriptor?.Unit, value, item.Label, valueText, widest, secondaries);
     }
 
-    private static Column MeasureColumn(Cell[] cells, Graphics g, Font font, float scale)
+    private static Column MeasureColumn(Cell[] cells, int rows, Graphics g, Font font, float scale)
     {
         float Measure(string? text) => string.IsNullOrEmpty(text) ? 0 : g.MeasureString(text, font, PointF.Empty, MeasureFormat).Width;
 
         var labelWidth = cells.Max(c => Measure(c.Label));
         var valueWidth = cells.Max(c => Measure(c.WidestText));
         var graphicWidth = cells.Any(c => c.Item.Style != ItemStyle.Text) ? GraphicWidth * scale : 0;
-        var secondaryWidth = cells.Max(c => Measure(c.SecondaryWidestText));
+        var placed = PlaceSecondaries(cells, rows);
+
+        // Secondary values are aligned by position: every first secondary shares a slot, and so on.
+        var secondaryWidths = Enumerable
+            .Range(0, placed.Max(r => r.Count))
+            .Select(i => placed.Max(r => i < r.Count ? Measure(r[i].Text.Widest) : 0))
+            .ToArray();
+
+        // Same advance as DrawCell: label, value, graphic, each followed by a gap.
+        var secondaryX = (labelWidth > 0 ? labelWidth + Gap * scale : 0) + valueWidth + Gap * scale +
+            (graphicWidth > 0 ? graphicWidth + Gap * scale : 0);
 
         var width = labelWidth + valueWidth;
-        foreach (var slot in new[] { labelWidth, graphicWidth, secondaryWidth })
+        foreach (var slot in secondaryWidths.Prepend(graphicWidth).Prepend(labelWidth))
         {
             if (slot > 0)
             {
@@ -123,8 +138,36 @@ internal sealed class WidgetRenderer : IDisposable
             }
         }
 
-        width += graphicWidth + secondaryWidth;
-        return new Column(cells, labelWidth, valueWidth, graphicWidth, secondaryWidth, width);
+        width += graphicWidth + secondaryWidths.Sum();
+        return new Column(cells, placed, labelWidth, valueWidth, graphicWidth, secondaryWidths, secondaryX, width);
+    }
+
+    /// <summary>
+    /// Decides which row of the column draws each secondary value. An item's first secondary stays
+    /// on its own row; further ones move to the next free row below (CPU temperature, then CPU power
+    /// under it on the RAM row), and stay beside the first only when no row below is free.
+    /// </summary>
+    private static List<PlacedSecondary>[] PlaceSecondaries(Cell[] cells, int rows)
+    {
+        var placed = Enumerable.Range(0, Math.Max(rows, cells.Length)).Select(_ => new List<PlacedSecondary>()).ToArray();
+        for (var i = 0; i < cells.Length; i++)
+        {
+            placed[i].AddRange(cells[i].Secondaries.Take(1).Select(s => new PlacedSecondary(s, cells[i].Item)));
+        }
+
+        bool IsFree(int row) => placed[row].Count == 0 && (row >= cells.Length || cells[row].Secondaries.Count == 0);
+        for (var i = 0; i < cells.Length; i++)
+        {
+            foreach (var secondary in cells[i].Secondaries.Skip(1))
+            {
+                var row = Enumerable.Range(i + 1, placed.Length - i - 1).Where(IsFree).DefaultIfEmpty(i).First();
+                placed[row].Add(new PlacedSecondary(secondary, cells[i].Item));
+            }
+        }
+
+        // Rows past the last item are only kept when something was stacked into them.
+        var used = Math.Max(cells.Length, Array.FindLastIndex(placed, r => r.Count > 0) + 1);
+        return placed[..used];
     }
 
     private static void DrawCell(Graphics g, Cell cell, Column column, RectangleF bounds, Font font, float scale, RenderRequest request)
@@ -159,11 +202,23 @@ internal sealed class WidgetRenderer : IDisposable
             x += column.GraphicWidth + Gap * scale;
         }
 
-        if (cell.SecondaryText is not null)
+    }
+
+    private static List<(RectangleF Slot, ItemConfig Owner)> DrawSecondaries(
+        Graphics g, List<PlacedSecondary> secondaries, Column column, RectangleF bounds, Font font, float scale, Palette palette)
+    {
+        var drawn = new List<(RectangleF, ItemConfig)>();
+        using var brush = new SolidBrush(palette.Foreground);
+        var x = bounds.X + column.SecondaryX;
+        for (var i = 0; i < secondaries.Count; i++)
         {
-            using var secondaryBrush = new SolidBrush(palette.Foreground);
-            g.DrawString(cell.SecondaryText, font, secondaryBrush, new RectangleF(x, bounds.Y, column.SecondaryWidth, bounds.Height), ValueFormat);
+            var slot = new RectangleF(x, bounds.Y, column.SecondaryWidths[i], bounds.Height);
+            g.DrawString(secondaries[i].Text.Text, font, brush, slot, ValueFormat);
+            drawn.Add((slot, secondaries[i].Owner));
+            x += slot.Width + Gap * scale;
         }
+
+        return drawn;
     }
 
     private static void DrawGraphic(Graphics g, Cell cell, RectangleF slot, Color color, float scale, RenderRequest request)
@@ -264,8 +319,21 @@ internal sealed class WidgetRenderer : IDisposable
         string Label,
         string ValueText,
         string WidestText,
-        string? SecondaryText,
-        string? SecondaryWidestText);
+        IReadOnlyList<SecondaryText> Secondaries);
 
-    private sealed record Column(Cell[] Cells, float LabelWidth, float ValueWidth, float GraphicWidth, float SecondaryWidth, float Width);
+    private sealed record SecondaryText(string Text, string Widest);
+
+    private sealed record PlacedSecondary(SecondaryText Text, ItemConfig Owner);
+
+    /// <param name="Rows">Secondary values per row; longer than <paramref name="Cells"/> when a value is stacked under the last item.</param>
+    /// <param name="SecondaryX">Offset of the first secondary slot from the column's left edge.</param>
+    private sealed record Column(
+        Cell[] Cells,
+        List<PlacedSecondary>[] Rows,
+        float LabelWidth,
+        float ValueWidth,
+        float GraphicWidth,
+        float[] SecondaryWidths,
+        float SecondaryX,
+        float Width);
 }

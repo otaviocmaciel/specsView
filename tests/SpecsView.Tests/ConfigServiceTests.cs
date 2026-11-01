@@ -74,6 +74,18 @@ public sealed class ConfigServiceTests : IDisposable
     }
 
     [Fact]
+    public void Partial_sections_keep_defaults_for_missing_values()
+    {
+        var config = ConfigService.Parse("""{ "layout": { "rows": 1 }, "theme": { "font": { "size": 10 } } }""");
+
+        Assert.NotNull(config);
+        Assert.Equal(1, config.Layout.Rows);
+        Assert.Equal(8, config.Layout.ItemSpacing);
+        Assert.Equal(30, config.Layout.SparklinePoints);
+        Assert.Equal("Segoe UI", config.Theme.Font.Family);
+    }
+
+    [Fact]
     public void Secondary_metric_is_parsed_and_sampled()
     {
         var config = ConfigService.Parse("""{ "items": [ { "metric": "cpu.total", "secondary": "hw.cpu.temp" }, { "metric": "mem.used", "secondary": " " } ] }""");

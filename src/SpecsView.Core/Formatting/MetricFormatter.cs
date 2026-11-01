@@ -27,7 +27,7 @@ public static class MetricFormatter
                 ? string.Format(culture, "{0:0.00} GHz", v / 1000)
                 : string.Format(culture, "{0:0} MHz", v),
             MetricUnit.Rpm => string.Format(culture, "{0:0} RPM", v),
-            MetricUnit.Watts => string.Format(culture, "{0:0.0} W", v),
+            MetricUnit.Watts => string.Format(culture, "{0:0} W", v),
             MetricUnit.Volts => string.Format(culture, "{0:0.000} V", v),
             MetricUnit.Seconds => FormatDuration(v),
             _ => string.Format(culture, "{0:0}", v),
@@ -45,7 +45,7 @@ public static class MetricFormatter
         MetricUnit.Celsius => "100°C",
         MetricUnit.Megahertz => Format(9999, unit, culture),
         MetricUnit.Rpm => "9999 RPM",
-        MetricUnit.Watts => Format(999.9, unit, culture),
+        MetricUnit.Watts => Format(999, unit, culture),
         MetricUnit.Volts => Format(1.888, unit, culture),
         MetricUnit.Seconds => "99d 23h",
         _ => "99999",

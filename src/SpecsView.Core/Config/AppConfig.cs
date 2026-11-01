@@ -2,19 +2,24 @@ using System.Text.Json.Serialization;
 
 namespace SpecsView.Core.Config;
 
+/// <remarks>
+/// The config records use <c>set</c> rather than <c>init</c>: the System.Text.Json source generator
+/// assigns every init-only property in the object initializer, so values missing from the file would
+/// become default(T) instead of the defaults below. Treat instances as immutable and use <c>with</c>.
+/// </remarks>
 public sealed record AppConfig
 {
     public const int CurrentSchemaVersion = 1;
 
-    public int SchemaVersion { get; init; } = CurrentSchemaVersion;
+    public int SchemaVersion { get; set; } = CurrentSchemaVersion;
 
-    public int RefreshIntervalMs { get; init; } = 1000;
+    public int RefreshIntervalMs { get; set; } = 1000;
 
-    public LayoutConfig Layout { get; init; } = new();
+    public LayoutConfig Layout { get; set; } = new();
 
-    public ThemeConfig Theme { get; init; } = new();
+    public ThemeConfig Theme { get; set; } = new();
 
-    public IReadOnlyList<ItemConfig> Items { get; init; } =
+    public IReadOnlyList<ItemConfig> Items { get; set; } =
     [
         new() { Metric = "cpu.total", Label = "CPU", Style = ItemStyle.TextSparkline },
         new() { Metric = "mem.usedPercent", Label = "RAM", Style = ItemStyle.TextBar },
@@ -33,23 +38,23 @@ public sealed record AppConfig
         Theme = (Theme ?? new()).Normalize(),
         Items = (Items ?? [])
             .Where(i => !string.IsNullOrWhiteSpace(i?.Metric))
-            .Select(i => string.IsNullOrWhiteSpace(i.Secondary) ? i with { Secondary = null } : i)
+            .Select(i => i.NormalizeSecondary())
             .ToList(),
     };
 }
 
 public sealed record LayoutConfig
 {
-    public int Rows { get; init; } = 2;
+    public int Rows { get; set; } = 2;
 
-    public int ItemSpacing { get; init; } = 8;
+    public int ItemSpacing { get; set; } = 8;
 
-    public int SparklinePoints { get; init; } = 30;
+    public int SparklinePoints { get; set; } = 30;
 
-    public WidgetPosition Position { get; init; } = WidgetPosition.BeforeTray;
+    public WidgetPosition Position { get; set; } = WidgetPosition.BeforeTray;
 
     /// <summary>Extra horizontal offset in logical pixels (negative moves left).</summary>
-    public int OffsetX { get; init; }
+    public int OffsetX { get; set; }
 
     public LayoutConfig Normalize() => this with
     {
@@ -61,19 +66,19 @@ public sealed record LayoutConfig
 
 public sealed record ThemeConfig
 {
-    public FontConfig Font { get; init; } = new();
+    public FontConfig Font { get; set; } = new();
 
     /// <summary>When true, foreground follows the Windows taskbar theme (light/dark).</summary>
-    public bool FollowSystemTheme { get; init; } = true;
+    public bool FollowSystemTheme { get; set; } = true;
 
-    public string Foreground { get; init; } = "#FFFFFF";
+    public string Foreground { get; set; } = "#FFFFFF";
 
     /// <summary>#AARRGGBB. Fully transparent by default.</summary>
-    public string Background { get; init; } = "#00000000";
+    public string Background { get; set; } = "#00000000";
 
-    public string Accent { get; init; } = "#4CC2FF";
+    public string Accent { get; set; } = "#4CC2FF";
 
-    public IReadOnlyList<ThresholdConfig> Thresholds { get; init; } =
+    public IReadOnlyList<ThresholdConfig> Thresholds { get; set; } =
     [
         new() { Above = 80, Color = "#FFB900" },
         new() { Above = 95, Color = "#E81123" },
@@ -88,12 +93,12 @@ public sealed record ThemeConfig
 
 public sealed record FontConfig
 {
-    public string Family { get; init; } = "Segoe UI";
+    public string Family { get; set; } = "Segoe UI";
 
     /// <summary>Size in points.</summary>
-    public float Size { get; init; } = 9;
+    public float Size { get; set; } = 9;
 
-    public bool Bold { get; init; }
+    public bool Bold { get; set; }
 
     public FontConfig Normalize() => this with
     {
@@ -104,32 +109,43 @@ public sealed record FontConfig
 
 public sealed record ThresholdConfig
 {
-    public double Above { get; init; }
+    public double Above { get; set; }
 
-    public string Color { get; init; } = "#FFFFFF";
+    public string Color { get; set; } = "#FFFFFF";
 }
 
 public sealed record ItemConfig
 {
-    public string Metric { get; init; } = "";
+    public string Metric { get; set; } = "";
 
-    public string Label { get; init; } = "";
+    public string Label { get; set; } = "";
 
-    public ItemStyle Style { get; init; } = ItemStyle.Text;
+    public ItemStyle Style { get; set; } = ItemStyle.Text;
 
     /// <summary>Optional value color override (#RRGGBB); thresholds still apply on top.</summary>
-    public string? Color { get; init; }
+    public string? Color { get; set; }
 
     /// <summary>
-    /// Optional second metric drawn after the graphic, e.g. "hw.cpu.temp" next to "cpu.total",
-    /// so one item shows load, sparkline and temperature together.
+    /// Optional extra metrics drawn after the graphic, e.g. "hw.cpu.temp" and "hw.cpu.power" next
+    /// to "cpu.total", so one item shows load, sparkline, temperature and power together. Written
+    /// as a string when there is one and as an array when there are several.
     /// </summary>
-    public string? Secondary { get; init; }
+    [JsonConverter(typeof(StringOrArrayConverter))]
+    public IReadOnlyList<string>? Secondary { get; set; }
 
     /// <summary>The metric ids this item needs sampled.</summary>
     [JsonIgnore]
-    public IEnumerable<string> MetricIds =>
-        string.IsNullOrWhiteSpace(Secondary) ? [Metric] : [Metric, Secondary];
+    public IEnumerable<string> MetricIds => [Metric, .. Secondary ?? []];
+
+    internal ItemConfig NormalizeSecondary()
+    {
+        var secondary = (Secondary ?? [])
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        return this with { Secondary = secondary.Count == 0 ? null : secondary };
+    }
 }
 
 public enum ItemStyle

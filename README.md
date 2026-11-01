@@ -8,7 +8,7 @@ network, temperatures and more — right next to the notification area.
 - **Readable**: follows the Windows light/dark theme, per-monitor DPI aware, threshold colors.
 - **Customizable**: colors, font family and size, layout, refresh interval — hot-reloaded from `config.json`.
 
-> Status: early development. Configuration is done by editing `config.json`; a settings window is on the [roadmap](#roadmap).
+> Status: early development. Choose the metrics in **Escolher métricas...**; everything else is configured by editing `config.json`.
 
 ## Download
 
@@ -35,7 +35,7 @@ git push origin v0.1.0
 
 - Windows 10 or 11 (x64)
 - [.NET 10 SDK](https://dotnet.microsoft.com/download) to build from source
-- Optional, for CPU/motherboard temperatures: administrator rights and the [PawnIO](https://pawnio.eu) driver (see [Privileges](#privileges))
+- Optional, for CPU/motherboard temperature and power: the [PawnIO](https://pawnio.eu) driver and administrator rights, both set up from the menu (see [Privileges](#privileges))
 
 ## Getting started
 
@@ -60,11 +60,14 @@ Right-click the widget or its tray icon for the menu (UI strings are currently i
 
 | Menu item | Action |
 |---|---|
+| Escolher métricas... | Checkboxes for what is shown: CPU and GPU load, temperature and power, memory, disk, network (also opens with a double-click on the tray icon) |
 | Editar configurações | Open `config.json` |
 | Ver métricas disponíveis | Generate a report of every metric id available on this machine |
 | Abrir pasta de configurações | Open `%APPDATA%\SpecsView` |
 | Pausar / Retomar | Pause or resume sampling |
-| Reiniciar como administrador | Restart elevated (only shown when not elevated) |
+| Iniciar com o Windows | Start at logon, elevated, through a scheduled task (one UAC prompt to change) |
+| Ativar sensores da CPU... | Download and install the PawnIO driver, then restart elevated (only shown when the driver is missing) |
+| Reiniciar como administrador | Restart elevated (only shown when the driver is installed but SpecsView is not elevated) |
 | Sair | Exit |
 
 ## Configuration
@@ -92,7 +95,7 @@ Comments and trailing commas are allowed; out-of-range values are clamped instea
     "thresholds": [ { "above": 80, "color": "#FFB900" }, { "above": 95, "color": "#E81123" } ]
   },
   "items": [
-    { "metric": "cpu.total", "label": "CPU", "style": "text+sparkline", "secondary": "hw.cpu.temp" },
+    { "metric": "cpu.total", "label": "CPU", "style": "text+sparkline", "secondary": ["hw.cpu.temp", "hw.cpu.power"] },
     { "metric": "mem.usedPercent", "label": "RAM", "style": "text+bar" },
     { "metric": "gpu.total", "label": "GPU", "style": "text+sparkline", "secondary": "hw.gpu.temp" },
     { "metric": "disk.total.active", "label": "Disk", "style": "text+bar" },
@@ -106,11 +109,13 @@ The example above renders as three compact columns:
 
 ```
 CPU   6% ▁▂▅▃  69°C    GPU  1% ▁▁▂▁  56°C    ↓ 12.0 KB/s
-RAM  93% ██████        Disk 0% ░░░░░░         ↑  2.6 KB/s
+RAM  93% ██████  45 W    Disk 0% ░░░░░░  22 W    ↑  2.6 KB/s
 ```
 
 - Item styles: `text`, `text+bar`, `text+sparkline`. Items flow column by column (top, bottom, next column).
-- `secondary` adds a second metric after the graphic (typically a temperature), so a component needs a single item. Secondary values are aligned within each column.
+- `secondary` adds one metric (a string) or several (an array) after the graphic, typically temperature and power, so a component needs a single item. Secondary values are aligned within each column. With two rows,
+  extra secondary values are stacked under the first one when the row below has none of its own (CPU power under the CPU temperature, on the RAM row); otherwise they go side by side.
+- **Escolher métricas...** rewrites only the CPU, memory, GPU, disk and network items, keeping their labels, colors and styles; other items added by hand are left untouched.
 - Colors can be set per item; thresholds apply to percentage metrics.
 - Hovering an item shows its full name, current value and, when it shows "—", the reason.
 
@@ -136,10 +141,22 @@ your machine together with its current value.
 SpecsView runs **unelevated** by default; CPU, memory, GPU, disk, network and battery metrics need no special rights.
 
 CPU and motherboard sensors (`hw.cpu.*`, `hw.mb.*`) are read through LibreHardwareMonitor, which
-requires **administrator rights and the PawnIO kernel driver** (`winget install namazso.PawnIO`;
-LibreHardwareMonitor 0.9.5+ no longer uses WinRing0). Without them, LibreHardwareMonitor reports
-`0` instead of "no reading"; SpecsView discards those values and shows "—", with the reason in the tooltip.
+requires **administrator rights and the PawnIO kernel driver** (LibreHardwareMonitor 0.9.5+ no longer
+uses WinRing0). Without them, LibreHardwareMonitor reports `0` instead of "no reading"; SpecsView
+discards those values and shows "—", with the reason in the tooltip.
 GPU sensors (NVAPI/ADL) work without elevation.
+
+**Ativar sensores da CPU...** sets both up with a single UAC prompt:
+
+1. Downloads the official installer (`github.com/namazso/PawnIO.Setup`, latest release) and checks
+   its Authenticode signature, which must be valid and issued to `CN=namazso.eu`.
+2. Relaunches SpecsView elevated, which re-checks the signature, runs `PawnIO_setup.exe -install -silent`
+   and creates the logon task used by **Iniciar com o Windows**.
+3. From then on SpecsView starts elevated at logon without prompting.
+
+The installer is downloaded rather than bundled: PawnIO is GPL-2.0, and shipping its binary inside
+SpecsView.exe would require every release to also distribute PawnIO's source. PawnIO can also be
+installed manually (`winget install namazso.PawnIO`) and removed from *Apps > Installed apps*.
 
 ## Architecture
 
@@ -228,8 +245,10 @@ LibreHardwareMonitor accounts for about 20 MB, which is why it is only loaded wh
 - [x] Providers: CPU (total, per core, clock), memory, GPU, disk, drives, network, battery, system
 - [x] Hardware sensors via LibreHardwareMonitor, restart as administrator
 - [x] Metrics report and hover tooltips
-- [ ] Settings window with metric discovery
+- [x] Settings window to choose the displayed metrics (including CPU/GPU power)
+- [ ] Metric discovery in the settings window
 - [ ] Taskbars on secondary monitors
-- [ ] Start with Windows (Run key, or an elevated scheduled task for hardware sensors) and app icon
+- [x] Start with Windows (elevated scheduled task) and one-click PawnIO setup
+- [ ] App icon
 - [x] Single-file executable and per-user install script
 - [ ] Portable zip release

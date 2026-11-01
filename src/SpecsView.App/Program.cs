@@ -1,3 +1,4 @@
+using SpecsView.App.Setup;
 using SpecsView.Core.Diagnostics;
 
 namespace SpecsView.App;
@@ -17,6 +18,22 @@ internal static class Program
             return 0;
         }
 
+        // "--autostart on|off": elevated helper launched by the menu; changes the logon task and exits.
+        if (args.Length == 2 && args[0] == Autostart.Arg)
+        {
+            return Autostart.Apply(args[1] == "on") ? 0 : 1;
+        }
+
+        ApplicationConfiguration.Initialize();
+
+        // "--install-driver <setup.exe>": elevated relaunch from "Ativar sensores da CPU". Installs the
+        // driver and the logon task, then carries on as the (now elevated) widget.
+        var installIndex = Array.IndexOf(args, SensorSetup.InstallDriverArg);
+        if (installIndex >= 0 && installIndex + 1 < args.Length)
+        {
+            InstallSensors(args[installIndex + 1]);
+        }
+
         using var mutex = new Mutex(initiallyOwned: false, @"Local\SpecsView.SingleInstance");
         if (!AcquireSingleInstance(mutex, wait: args.Contains(WaitForPreviousInstanceArg)))
         {
@@ -26,10 +43,23 @@ internal static class Program
         Application.ThreadException += (_, e) => Log.Error("Unhandled UI exception.", e.Exception);
         AppDomain.CurrentDomain.UnhandledException += (_, e) => Log.Error("Unhandled exception.", e.ExceptionObject as Exception);
 
-        ApplicationConfiguration.Initialize();
         Application.Run(new SpecsViewContext());
         mutex.ReleaseMutex();
         return 0;
+    }
+
+    private static void InstallSensors(string setupPath)
+    {
+        var problem = SensorSetup.Install(setupPath);
+        if (problem is null && !Autostart.Apply(true))
+        {
+            problem = "O driver foi instalado, mas não foi possível configurar o início com o Windows.";
+        }
+
+        if (problem is not null)
+        {
+            MessageBox.Show(problem, "SpecsView", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
     }
 
     /// <summary>
